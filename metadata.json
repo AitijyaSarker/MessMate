@@ -1,0 +1,5 @@
+{
+  "name": "Hostel Hub",
+  "description": "A modern, client-side hostel management system for tracking resident meals and market expenses. All data is stored in your local browser and will be lost if you clear your browser's data.",
+  "requestFramePermissions": []
+}
