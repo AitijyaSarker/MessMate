@@ -1,20 +1,23 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# MessMate
 
-# Run and deploy your AI Studio app
+MessMate is a modern web application designed to simplify the management of shared expenses in a hostel or a student mess. Currently under development, its goal is to provide a central place to track daily meals, log group expenses, and automatically calculate individual balances, making shared living easier for everyone.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/drive/1L6kGT-hzgX3L6VlE0jqI9_G5tajH6oOt
+## ✨ Key Features
 
-## Run Locally
+*   📊 **Dashboard Overview:** A quick look at the month's key statistics.
+*   👥 **Resident Management:** Easily add and remove members of the mess.
+*   📝 **Meal & Expense Logging:** Track daily meals and shared market expenses.
+*   🧾 **Shared Bill Tracking:** A separate section to manage monthly bills like Wi-Fi or rent.
+*   🧮 **Automatic Balance Calculation:** Automatically calculates the meal rate and each member's final balance.
+*   📄 **PDF Reports:** Download a summary of the month's finances.
 
-**Prerequisites:**  Node.js
+---
 
+## 🛠️ Tech Stack
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+*   **Frontend:** React, TypeScript, Vite
+*   **Styling:** Tailwind CSS
+*   **Backend & Database:** Supabase
+*   **Routing:** React Router

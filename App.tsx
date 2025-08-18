@@ -15,88 +15,156 @@ import { FooterCredit } from './Footercredit';
 // --- DATA CONTEXT ---
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-
-const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+// MODIFIED: The DataProvider now accepts an `isGuest` prop to know which mode to operate in.
+const DataProvider: React.FC<{ children: ReactNode; isGuest: boolean }> = ({ children, isGuest }) => {
     const [residents, setResidents] = useState<Resident[]>([]);
     const [meals, setMeals] = useState<MealRecord[]>([]);
     const [market, setMarket] = useState<MarketRecord[]>([]);
-    const [bills, setBills] = useState<BillRecord[]>([]); 
+    const [bills, setBills] = useState<BillRecord[]>([]);
+
+    const fetchDataForCurrentUser = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data: profile, error: profileError } = await supabase.from('profiles').select('group_id').eq('id', user.id).single();
+            if (profileError || !profile || !profile.group_id) {
+                console.error("Could not find a group for the current user.", profileError);
+                setResidents([]); setMeals([]); setMarket([]); setBills([]);
+                return;
+            }
+            const groupId = profile.group_id;
+
+            const [residentsRes, mealsRes, marketRes, billsRes] = await Promise.all([
+                supabase.from('residents').select('*').eq('group_id', groupId),
+                supabase.from('meals').select('*').eq('group_id', groupId),
+                supabase.from('market').select('*').eq('group_id', groupId),
+                supabase.from('bills').select('*').eq('group_id', groupId)
+            ]);
+
+            setResidents(residentsRes.data || []);
+            setMeals(mealsRes.data || []);
+            setMarket(marketRes.data || []);
+            setBills(billsRes.data || []);
+        } catch (error) {
+            console.error("Error fetching user data:", error);
+        }
+    };
+
+    // THIS useEffect is now corrected to handle both modes properly.
     useEffect(() => {
-      supabase.from('residents').select('*').then(({ data }) => setResidents(data || []));
-      supabase.from('meals').select('*').then(({ data }) => setMeals(data || []));
-      supabase.from('market').select('*').then(({ data }) => setMarket(data || []));
-      supabase.from('bills').select('*').then(({ data }) => setBills(data || [])); 
-    }, []);
-  
+        if (isGuest) {
+            // In Guest Mode, set initial sample data and do nothing else.
+            setResidents([{id: 'guest-1', name: 'John Doe (Guest)', joinDate: new Date().toISOString().split('T')[0], group_id: 'guest'}]);
+            setMeals([]);
+            setMarket([]);
+            setBills([]);
+        } else {
+            // For real users, fetch data from Supabase.
+            fetchDataForCurrentUser();
+        }
+    }, [isGuest]); // This key dependency ensures it re-runs when you switch between guest and real user.
+
+    const getCurrentGroupId = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+        const { data: profile } = await supabase.from('profiles').select('group_id').eq('id', user.id).single();
+        return profile?.group_id || null;
+    };
+
+    // --- DATA MODIFICATION FUNCTIONS ---
+    // Each function has a simple check for `isGuest`.
     const addResident = async (name: string) => {
-      const { data } = await supabase.from('residents').insert([{ name, joinDate: new Date().toISOString().split('T')[0] }]).select();
-      if (data) setResidents(prev => [...prev, ...data]);
+        if (isGuest) {
+            const newResident = { id: Date.now().toString(), name, joinDate: new Date().toISOString().split('T')[0], group_id: 'guest' };
+            setResidents(prev => [...prev, newResident]);
+            return;
+        }
+        const groupId = await getCurrentGroupId();
+        if (!groupId) { console.error("Cannot add resident: no group ID found."); return; }
+        const { error } = await supabase.from('residents').insert([{ name, joinDate: new Date().toISOString().split('T')[0], group_id: groupId }]);
+        if (error) console.error("Error adding resident:", error);
+        else await fetchDataForCurrentUser();
     };
     
     const deleteResident = async (id: string) => {
-      if (window.confirm('Are you sure? This will also delete all their meal and market records.')) {
-        await supabase.from('residents').delete().eq('id', id);
-        setResidents(prev => prev.filter(r => r.id !== id));
-        setMeals(prev => prev.filter(m => m.residentId !== id));
-        setMarket(prev => prev.filter(m => m.residentId !== id));
-      }
+        if (isGuest) {
+            setResidents(prev => prev.filter(r => r.id !== id)); return;
+        }
+        if (window.confirm('Are you sure? This will also delete all their meal and market records.')) {
+            const { error } = await supabase.from('residents').delete().eq('id', id);
+            if (error) console.error("Error deleting resident:", error);
+            else await fetchDataForCurrentUser();
+        }
     };
 
     const updateMealRecord = async (residentId: string, date: string, mealCount: number) => {
-      const existing = meals.find(m => m.residentId === residentId && m.date === date);
-      if (mealCount > 0) {
-        if (existing) {
-          await supabase.from('meals').update({ mealCount }).eq('id', existing.id);
-          setMeals(prev => prev.map(m => m.id === existing.id ? { ...m, mealCount } : m));
-        } else {
-          const { data } = await supabase.from('meals').insert([{ residentId, date, mealCount }]).select();
-          if (data) setMeals(prev => [...prev, ...data]);
+        if (isGuest) {
+            const existingIndex = meals.findIndex(m => m.residentId === residentId && m.date === date);
+            if (mealCount > 0) {
+                if (existingIndex > -1) {
+                    const updatedMeals = [...meals];
+                    updatedMeals[existingIndex] = { ...updatedMeals[existingIndex], mealCount };
+                    setMeals(updatedMeals);
+                } else {
+                    setMeals(prev => [...prev, { id: Date.now().toString(), residentId, date, mealCount, group_id: 'guest' }]);
+                }
+            } else if (existingIndex > -1) {
+                setMeals(prev => prev.filter(m => !(m.residentId === residentId && m.date === date)));
+            }
+            return;
         }
-      } else if (existing) {
-        await supabase.from('meals').delete().eq('id', existing.id);
-        setMeals(prev => prev.filter(m => m.id !== existing.id));
-      }
+        const groupId = await getCurrentGroupId();
+        if (!groupId) return;
+        const existing = meals.find(m => m.residentId === residentId && m.date === date);
+        if (mealCount > 0) {
+          if (existing) { await supabase.from('meals').update({ mealCount }).eq('id', existing.id); } 
+          else { await supabase.from('meals').insert([{ residentId, date, mealCount, group_id: groupId }]); }
+        } else if (existing) { await supabase.from('meals').delete().eq('id', existing.id); }
+        await fetchDataForCurrentUser();
     };
 
-    const addMarketRecord = async (record: Omit<MarketRecord, 'id'>) => {
-      const { data } = await supabase.from('market').insert([record]).select();
-      if (data) setMarket(prev => [ ...data, ...prev ]);
+    const addMarketRecord = async (record: Omit<MarketRecord, 'id' | 'group_id'>) => {
+        if (isGuest) {
+            setMarket(prev => [{...record, id: Date.now().toString(), group_id: 'guest'}, ...prev]);
+            return;
+        }
+        const groupId = await getCurrentGroupId();
+        if (!groupId) return;
+        await supabase.from('market').insert([{ ...record, group_id: groupId }]);
+        await fetchDataForCurrentUser();
     };
 
     const deleteMarketRecord = async (id: string) => {
-      await supabase.from('market').delete().eq('id', id);
-      setMarket(prev => prev.filter(m => m.id !== id));
+        if (isGuest) {
+            setMarket(prev => prev.filter(m => m.id !== id));
+            return;
+        }
+        await supabase.from('market').delete().eq('id', id);
+        await fetchDataForCurrentUser();
     };
-    // --- End of your original functions ---
 
-    const addBill = async (record: Omit<BillRecord, 'id'>) => {
-      const { data, error } = await supabase.from('bills').insert([record]).select();
-      if (error) {
-          console.error("Error adding bill:", error);
-          return;
-      }
-      if (data) {
-         
-          setBills(prev => [...data, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      }
+    const addBill = async (record: Omit<BillRecord, 'id' | 'group_id'>) => {
+        if (isGuest) {
+            setBills(prev => [{...record, id: Date.now().toString(), group_id: 'guest'}, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+            return;
+        }
+        const groupId = await getCurrentGroupId();
+        if (!groupId) return;
+        await supabase.from('bills').insert([{ ...record, group_id: groupId }]);
+        await fetchDataForCurrentUser();
     };
 
     const deleteBill = async (id: string) => {
-        const { error } = await supabase.from('bills').delete().eq('id', id);
-        if (error) {
-            console.error("Error deleting bill:", error);
+        if (isGuest) {
+            setBills(prev => prev.filter(b => b.id !== id));
             return;
         }
-        setBills(prev => prev.filter(b => b.id !== id));
+        await supabase.from('bills').delete().eq('id', id);
+        await fetchDataForCurrentUser();
     };
 
- 
-    const value = { 
-        residents, meals, market, bills, 
-        addResident, deleteResident, updateMealRecord, addMarketRecord, deleteMarketRecord,
-        addBill, deleteBill 
-    };
-    
+    const value = { residents, meals, market, bills, addResident, deleteResident, updateMealRecord, addMarketRecord, deleteMarketRecord, addBill, deleteBill };
     return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 
@@ -123,7 +191,6 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ user, onLogout }) => {
     const navLinkClasses = "flex items-center px-4 py-3 text-slate-200 hover:bg-slate-700 rounded-lg transition-colors";
     const activeLinkClasses = "bg-primary-600 text-white hover:bg-primary-600";
-
     
     return (
         <div className="flex flex-col w-64 h-screen bg-slate-800 text-white fixed">
@@ -161,7 +228,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout }) => {
     );
 };
 
-// --- MAIN APP COMPONENT  ---
+// --- MAIN APP COMPONENT ---
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [isGuest, setIsGuest] = useState(false);
@@ -193,9 +260,9 @@ export default function App() {
     return <LoginPage onGuestLogin={() => setIsGuest(true)} />;
   }
   
-
   return (
-    <DataProvider>
+    // We pass the isGuest prop here, which controls the entire DataProvider's behavior.
+    <DataProvider isGuest={isGuest}>
       <HashRouter>
         <div className="flex">
           <Sidebar user={user} onLogout={handleLogout} />
