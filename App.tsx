@@ -87,16 +87,31 @@ const DataProvider: React.FC<{ children: ReactNode; isGuest: boolean }> = ({ chi
         else await fetchDataForCurrentUser();
     };
     
-    const deleteResident = async (id: string) => {
-        if (isGuest) {
-            setResidents(prev => prev.filter(r => r.id !== id)); return;
+    // In src/App.tsx, inside the DataProvider component
+
+// In src/App.tsx, inside the DataProvider component
+
+const deleteResident = async (id: string) => {
+    // First, check if we are in guest mode.
+    if (isGuest) {
+        // If it's a guest, just update the local state and we are done.
+        // No confirmation is needed for temporary data.
+        setResidents(prev => prev.filter(r => r.id !== id));
+        return; 
+    }
+
+    // If we are NOT in guest mode, then proceed with the database deletion.
+    if (window.confirm('Are you sure? This will also delete all their meal and market records.')) {
+        const { error } = await supabase.from('residents').delete().eq('id', id);
+        
+        if (error) {
+            console.error("Error deleting resident:", error);
+            alert(`Failed to delete resident: ${error.message}`);
+        } else {
+            await fetchDataForCurrentUser();
         }
-        if (window.confirm('Are you sure? This will also delete all their meal and market records.')) {
-            const { error } = await supabase.from('residents').delete().eq('id', id);
-            if (error) console.error("Error deleting resident:", error);
-            else await fetchDataForCurrentUser();
-        }
-    };
+    }
+};
 
     const updateMealRecord = async (residentId: string, date: string, mealCount: number) => {
         if (isGuest) {
